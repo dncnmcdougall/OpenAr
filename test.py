@@ -57,16 +57,13 @@ while(loop):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     grayCLAHE = clahe.apply(gray)
+    bw2 = cv2.adaptiveThreshold(grayCLAHE, 255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11,2)
+    result,bw = cv2.threshold(grayCLAHE, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     kernel = np.ones((filterR,filterR),np.uint8)
-
-    # boardMask  = cv2.morphologyEx(cv2.inRange(hsv, np.array([0,    0, 190]), np.array([255, 135, 255])), cv2.MORPH_OPEN, kernel)
-    # greenMask  = cv2.morphologyEx(cv2.inRange(hsv, np.array([25, 130, 130]), np.array([40,  205, 210])), cv2.MORPH_OPEN, kernel)
-    # pinkMask   = cv2.morphologyEx(cv2.inRange(hsv, np.array([0,  130, 200]), np.array([10,  195, 255])), cv2.MORPH_OPEN, kernel)
-    # orangeMask = cv2.morphologyEx(cv2.inRange(hsv, np.array([10, 190, 200]), np.array([15,  255, 255])), cv2.MORPH_OPEN, kernel)
-    # yellowMask = cv2.morphologyEx(cv2.inRange(hsv, np.array([18, 190, 205]), np.array([35,  230, 245])), cv2.MORPH_OPEN, kernel)
 
     boardMask  = cv2.inRange(hsv, np.array([0,    0, 160]), np.array([255, 135, 255]))
     greenMask  = cv2.inRange(hsv, np.array([20, 100, 130]), np.array([45,  215, 255]))
@@ -127,6 +124,8 @@ while(loop):
     cv2.imshow('frame',frame)
     cv2.imshow('gray',gray)
     cv2.imshow('grayCLAHE',grayCLAHE)
+    cv2.imshow('bw',bw)
+    cv2.imshow('bw2',bw2)
 
     cv2.imshow('contours',cntImg)
     cv2.imshow('edges',edges)
