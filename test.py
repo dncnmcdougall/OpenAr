@@ -3,36 +3,10 @@ import scipy.ndimage
 import cv2
 from matplotlib import pyplot as plt
 import math
+import code 
 
 def nothing(x):
     pass
-
-def findBoundaryCorners(blackAndWhite):
-    height, width = blackAndWhite.shape
-    edgeWidth = int(width*0.15)
-    edgeHeight = int(height*0.15)
-    if width < edgeWidth or height < edgeHeight:
-        return []
-    innerImg = np.zeros((height+6, width+6), np.uint8)
-    innerImg[3:-3,3:-3] = blackAndWhite
-    corners = np.ones(blackAndWhite.shape,np.uint8)*21
-    for ii in range(1,6):
-        corners -= innerImg[0:-6,ii:(ii-6)]
-        corners -= innerImg[6: , ii:(ii-6)]
-        corners -= innerImg[ii:(ii-6),0:-6]
-        corners -= innerImg[ii:(ii-6),6:  ]
-    # corners = (corners*innerImg[3:-3,3:-3])
-    corners = (corners*blackAndWhite)
-    cnr = (corners > 11) 
-    corners = np.zeros(blackAndWhite.shape, np.uint8)
-    corners[cnr] = 1
-    corners[edgeWidth:-edgeWidth, edgeHeight:-edgeHeight] = 0
-    corners = cv2.dilate(corners, np.ones((2,2), np.uint8), iterations=2)
-
-    labeled_array, num_features = scipy.ndimage.label(corners)
-    # return (corners, labeled_array, num_features)
-    # return labeled_array
-    return scipy.ndimage.center_of_mass(corners, labeled_array, np.arange(1,num_features))
 
 def sortCorners(corners):
     arg = np.argsort(corners[:,0])
@@ -45,7 +19,6 @@ def sortCorners(corners):
 
     return np.array([tl, bl, br, tr],np.float32)
 
-
 cap = cv2.VideoCapture(0)
 
 loop = True
@@ -55,6 +28,7 @@ while(loop):
 
     # Capture frame-by-frame
     ret, frame = cap.read()
+    # frame = cv2.blur(frame, (3,3))
 
     height, width, _ = frame.shape
 
@@ -62,7 +36,8 @@ while(loop):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(11,11))
     grayCLAHE = clahe.apply(gray)
 
     thresh,bw = cv2.threshold(grayCLAHE, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -97,7 +72,7 @@ while(loop):
         if contours[0].shape[0] < 4:
             continue
 
-        epsilon = 0.05*cv2.arcLength(contours[0],True)
+        epsilon = 0.03*cv2.arcLength(contours[0],True)
         contour = cv2.approxPolyDP(contours[0],epsilon,True)
 
         if contour.shape[0] != 4:
@@ -119,7 +94,36 @@ while(loop):
             continue
 
         transM = cv2.getPerspectiveTransform(reducedContour, np.array([[0,0], [transW,0], [transW, transW], [0, transW] ], np.float32))
-        trans = np.array(cv2.warpPerspective(bw2[area[0], area[1]], transM, (transW, transW) ), np.uint8)
+        transGray = np.array(cv2.warpPerspective(grayCLAHE[area[0], area[1]], transM, (transW, transW) ), np.uint8)
+
+        thresh,trans = cv2.threshold(transGray, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # trans = np.array(cv2.warpPerspective(bw2[area[0], area[1]], transM, (transW, transW) ), np.uint8)
+        # trans = 1-trans
+
+        # kernel = np.ones((3,3), np.uint8)
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_OPEN, kernel, iterations=1)
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_CLOSE, kernel, iterations=1)
+        # kernel[1,0] = 0
+        # kernel[0,1] = 0
+        # kernel[1,-1] = 0
+        # kernel[-1,1] = 0
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_OPEN, kernel, iterations=1)
+        # kernel = np.ones((3,3), np.uint8)
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_OPEN, kernel, iterations=1)
+        # kernel = np.ones((3,3), np.uint8)
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_CLOSE, kernel, iterations=1)
+        # kernel[0,0] = 0
+        # kernel[0,-1] = 0
+        # kernel[-1,-1] = 0
+        # kernel[-1,0] = 0
+        # trans = cv2.morphologyEx(trans, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+        # trans = 1-trans
+
+        values = code.extractInner(trans)
+        # if values[0] == -1 :
+        #     continue
+        # data = code.decodeInner(values[1], values[2])
 
         colour = ((colourII%6)*255/6, 255, 255)
         colourDull = ((colourII%6)*255/6, 82, 255)
@@ -130,7 +134,15 @@ while(loop):
         contour[:,0,:] = contour[:,0,:] + [area[1].start, area[0].start]
         cv2.drawContours(hsv, [contour], -1, colour, 2)
 
+
         grayCLAHE[cnr[0]:otherCnr[0],cnr[1]:otherCnr[1]] = trans*255
+        # grayCLAHE[cnr[0]:otherCnr[0],cnr[1]:otherCnr[1]] = transGray
+
+        if values[0] != -1:
+            data = code.decodeInner(values[1], values[2])
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(grayCLAHE,str(data[0])+"("+str(data[1])+", "+str(data[2])+") "+str(values[0])
+                    ,(cnr[1],cnr[0]), font, 0.4,(255),1,cv2.LINE_AA)
 
 
     res = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
