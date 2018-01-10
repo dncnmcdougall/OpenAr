@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.misc
+import cv2
 
+# size of a code
 blockWidth=9
 idWidth = 7
 sideWidth = 4
@@ -8,8 +10,9 @@ sideWidth = 4
 # idWidth = 10
 # sideWidth = 5
 
-threshold = 0.045
-boxThreshold = 0.4
+# decoding thresholds
+threshold = 0.045 #direction threshold
+boxThreshold = 0.4 # 10 threshold
 
 dataWidth=blockWidth-5
 if (dataWidth*dataWidth-1) < ( 2*sideWidth + idWidth):
@@ -56,45 +59,24 @@ def generateImage(id, width, height, scale):
     img[(-bw*scale-1):-1,(-bw*scale-1):-1] = mask[-1::-1,-1::-1]
     img[0:bw*scale,(-bw*scale-1):-1] = np.transpose(mask)[:,-1::-1]
 
-    # img[0:bw*scale,0:bw*scale] = mask
-    # img[-1:-bw*scale-1:-1,0:bw*scale] = np.transpose(mask)
-    # img[-1:-bw*scale-1:-1,-1:-bw*scale-1:-1] = mask
-    # img[0:bw*scale,-1:-bw*scale-1:-1] = np.transpose(mask)
-
     return img
 
-import cv2
 
-def showAndWeight(im, name='show'):
+# these are convenience methods for debugging
+def showDontWait(im, name='show'):
+    img = im*255
+    cv2.imshow(name,img)
+
+def showAndWait(im, name='show'):
     img = im*255
     cv2.imshow(name,img)
     while(True):
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-# Takes in a square image without the white border
-def extractInner(im):
-    side, cols = im.shape
-    assert(side == cols)
+def extractInnerNoRotationNoScaling(img, scale, mask):
     bw=blockWidth-2
-
-    scale = side/bw
     sd =np.arange(0,bw+1)*scale
-
-    img = scipy.misc.imresize(im, (bw*scale, bw*scale), 'nearest')
-
-    mask = np.ones((bw*scale,bw*scale), np.uint8)
-
-    mask[0:sd[1],       0:sd[bw]] = 0
-    mask[sd[bw-1]:sd[bw], 0:sd[bw]] = 0
-
-    mask[0:sd[bw], 0:sd[1]] = 0
-    mask[0:sd[bw], sd[bw-1]:sd[bw]] = 0
-
-    for ii in range(1,bw-1,2):
-        jj = ii
-        mask[sd[jj]:sd[jj+1], sd[1]:sd[2]] = 0
-        mask[sd[1]:sd[2], sd[jj]:sd[jj+1]] = 0
 
     thresh = threshold*scale*scale*bw*bw
 
@@ -106,55 +88,81 @@ def extractInner(im):
     addToOutput(outside, img, slice(sd[bw-1],sd[bw]), slice(0,sd[bw])) 
     addToOutput(outside, img, slice(0,sd[bw]), slice(0,sd[2])) 
     addToOutput(outside, img, slice(0,sd[bw]), slice(sd[bw-1],sd[bw]))
-    inner = img[sd[2]:sd[bw-1], sd[2]:sd[bw-1]]
 
+    # This expands the inner bit a little. 
+    # The idea is that this avoids dodgy overlays, and slight rotations, thus improving robustness.
+    extraBit = scale/5
+    innerSlice = slice((sd[2]-extraBit),(sd[bw-1] + extraBit))
+    outside[innerSlice, innerSlice] = 1
+    mask[innerSlice, innerSlice] = 1
 
-    rotMask =  mask
+    result = sum(sum(mask != outside))
 
-    result = sum(sum(rotMask != outside))
     if result < thresh:
-        return (1, inner, scale)
+        inner = img[sd[2]:sd[bw-1], sd[2]:sd[bw-1]]
+        return (inner, result)
+    else:
+        return (None, -1)
 
-    outside = np.ones((bw*scale,bw*scale), np.uint8)
-    addToOutput(outside, img, slice(0,sd[1]),         slice(0,sd[bw]))
-    addToOutput(outside, img, slice(sd[bw-2],sd[bw]), slice(0,sd[bw])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(0,sd[2])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(sd[bw-1],sd[bw]))
-    inner = img[sd[1]:sd[bw-2], sd[2]:sd[bw-1]]
+# Takes in a square image without the white border
+def extractInner(im):
+    side, cols = im.shape
+    assert(side == cols)
+    bw=blockWidth-2
 
-    rotMask =  np.transpose(mask)[-1::-1,:]
+    scale = side/bw
+    sd =np.arange(0,bw+1)*scale
 
-    result = sum(sum(rotMask != outside))
-    if result < thresh:
-        return (2, np.transpose(inner)[:,-1::-1], scale)
+    # make the image the same size as the mask
+    img = scipy.misc.imresize(im, (bw*scale, bw*scale), 'nearest')
 
-    outside = np.ones((bw*scale,bw*scale), np.uint8)
-    addToOutput(outside, img, slice(0,sd[1]),         slice(0,sd[bw]))
-    addToOutput(outside, img, slice(sd[bw-2],sd[bw]), slice(0,sd[bw])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(0,sd[1])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(sd[bw-2],sd[bw]))
-    inner = img[sd[1]:sd[bw-2], sd[1]:sd[bw-2]]
+    # construct the direction mask
+    mask = np.ones((bw*scale,bw*scale), np.uint8)
+    # top and bottom borders
+    mask[0:sd[1],       0:sd[bw]] = 0
+    mask[sd[bw-1]:sd[bw], 0:sd[bw]] = 0
+    # left and right borders
+    mask[0:sd[bw], 0:sd[1]] = 0
+    mask[0:sd[bw], sd[bw-1]:sd[bw]] = 0
+    # timing dots
+    for ii in range(1,bw-1,2):
+        jj = ii
+        mask[sd[jj]:sd[jj+1], sd[1]:sd[2]] = 0
+        mask[sd[1]:sd[2], sd[jj]:sd[jj+1]] = 0
 
-    rotMask =  mask[-1::-1,-1::-1]
+    # extract all four directions
+    values = []
+    rotImg =  img
+    result = extractInnerNoRotationNoScaling(rotImg, scale, mask)
+    if result[1] >= 0:
+        values += [[result[1], 1, result[0]]]
 
-    result = sum(sum(rotMask != outside))
-    if result < thresh:
-        return (3, inner[-1::-1,-1::-1], scale)
+    rotImg = np.transpose(img)[:,-1::-1]
+    result = extractInnerNoRotationNoScaling(rotImg, scale, mask)
+    if result[1] >= 0:
+        values += [[result[1], 2, result[0]]]
 
-    outside = np.ones((bw*scale,bw*scale), np.uint8)
-    addToOutput(outside, img, slice(0,sd[2]),         slice(0,sd[bw]))
-    addToOutput(outside, img, slice(sd[bw-1],sd[bw]), slice(0,sd[bw])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(0,sd[1])) 
-    addToOutput(outside, img, slice(0,sd[bw]), slice(sd[bw-2],sd[bw]))
-    inner = img[sd[2]:sd[bw-1], sd[1]:sd[bw-2]]
+    rotImg =  img[-1::-1,-1::-1]
+    result = extractInnerNoRotationNoScaling(rotImg, scale, mask)
+    if result[1] > 0:
+        values += [[result[1], 3, result[0]]]
 
-    rotMask = np.transpose(mask)[:,-1::-1]
+    rotImg =  np.transpose(img)[-1::-1,:]
+    result = extractInnerNoRotationNoScaling(rotImg, scale, mask)
+    if result[1] >= 0:
+        values += [[result[1], 4, result[0]]]
 
-    result = sum(sum(rotMask != outside))
-    if result < thresh:
-        return (4, np.transpose(inner)[-1::-1,:], scale)
+    # if none of the directions is a valid candidate, retune none
+    if len(values) == 0:
+        return (-1, None, scale)
 
-    return (-1, None, scale)
+    # return the best candidate
+    minVal = values[0][0]
+    for ii in range(1, len(values)):
+        minVal = min(values[ii][0], minVal)
+
+    ii = [ii for ii in range(0, len(values)) if values[ii][0] == minVal][0]
+    return (values[ii][1], values[ii][2], scale)
 
 def decodeInner(img, scale):
 
